@@ -16,16 +16,16 @@ from test_puzzle import test
 # Triton Puzzles Lite
 
 Programming for accelerators such as GPUs is critical for modern AI systems.
-This often means programming directly in proprietary low-level languages such as CUDA. Triton is 
-an alternative open-source language that allows you to code at a higher-level and compile to accelerators 
+This often means programming directly in proprietary low-level languages such as CUDA. Triton is
+an alternative open-source language that allows you to code at a higher-level and compile to accelerators
 like GPU.
 
-Coding for Triton is very similar to Numpy and PyTorch in both syntax and semantics. However, as a lower-level 
-language there are a lot of details that you need to keep track of. In particular, one area that learners have 
+Coding for Triton is very similar to Numpy and PyTorch in both syntax and semantics. However, as a lower-level
+language there are a lot of details that you need to keep track of. In particular, one area that learners have
 trouble with is memory loading and storage which is critical for speed on low-level devices.
 
-This set is puzzles is meant to teach you how to use Triton from first principles in an interactive fashion. 
-You will start with trivial examples and build your way up to real algorithms like Flash Attention and 
+This set is puzzles is meant to teach you how to use Triton from first principles in an interactive fashion.
+You will start with trivial examples and build your way up to real algorithms like Flash Attention and
 Quantized neural networks. These puzzles **do not** need to run on GPU since they use a Triton interpreter.
 """
 
@@ -159,9 +159,9 @@ def run_demo3():
 """
 ### Demo 4
 
-You can only load in relatively small `blocks` at a time in Triton. To work 
-with larger tensors you need to use a program id axis to run multiple blocks in 
-parallel. 
+You can only load in relatively small `blocks` at a time in Triton. To work
+with larger tensors you need to use a program id axis to run multiple blocks in
+parallel.
 
 Here is an example with one program axis with 3 blocks.
 
@@ -173,8 +173,8 @@ Print for each [2] [1. 1. 1. 1. 0. 0. 0. 0.]
 
 Explanation:
 
-This program launch 3 blocks in parallel. For each block (pid=0, 1, 2), it loads 8 
-elements. Note that similar to demo3, multi-dimensional tensors are flattened when we 
+This program launch 3 blocks in parallel. For each block (pid=0, 1, 2), it loads 8
+elements. Note that similar to demo3, multi-dimensional tensors are flattened when we
 use pointer (i.e. continuous in memory).
 """
 
@@ -197,7 +197,7 @@ def run_demo4():
 r"""
 ## Puzzle 1: Constant Add
 
-Add a constant to a vector. Uses one program id axis. 
+Add a constant to a vector. Uses one program id axis.
 Block size `B0` is always the same as vector `x` with length `N0`.
 
 .. math::
@@ -216,13 +216,15 @@ def add_kernel(x_ptr, z_ptr, N0, B0: tl.constexpr):
     off_x = tl.arange(0, B0)
     x = tl.load(x_ptr + off_x)
     # Finish me!
+    x = x + 10.0
+    tl.store(z_ptr + off_x, x)
     return
 
 
 r"""
 ## Puzzle 2: Constant Add Block
 
-Add a constant to a vector. Uses one program block axis (no `for` loops yet). 
+Add a constant to a vector. Uses one program block axis (no `for` loops yet).
 Block size `B0` is now smaller than the shape vector `x` which is `N0`.
 
 .. math::
@@ -236,7 +238,11 @@ def add2_spec(x: Float32[200,]) -> Float32[200,]:
 
 @triton.jit
 def add_mask2_kernel(x_ptr, z_ptr, N0, B0: tl.constexpr):
+    pid = tl.program_id(0)
+    off_x = tl.arange(0, B0) + pid * B0
+    x = tl.load(x_ptr + off_x, mask=off_x < N0)
     # Finish me!
+    tl.store(z_ptr + off_x, x+10.0, mask=off_x < N0)
     return
 
 
@@ -363,7 +369,7 @@ r"""
 Sum of a batch of numbers.
 
 Uses one program blocks. Block size `B0` represents a range of batches of  `x` of length `N0`.
-Each element is of length `T`. Process it `B1 < T` elements at a time.  
+Each element is of length `T`. Process it `B1 < T` elements at a time.
 
 .. math::
     z_{i} = \sum^{T}_j x_{i,j} =  \text{ for } i = 1\ldots N_0
@@ -388,18 +394,18 @@ r"""
 Softmax of a batch of logits.
 
 Uses one program block axis. Block size `B0` represents the batch of `x` of length `N0`.
-Block logit length `T`.   Process it `B1 < T` elements at a time.  
+Block logit length `T`.   Process it `B1 < T` elements at a time.
 
 .. math::
     z_{i, j} = \text{softmax}(x_{i,1} \ldots x_{i, T}) \text{ for } i = 1\ldots N_0
 
-Note softmax needs to be computed in numerically stable form as in Python. In addition in Triton 
+Note softmax needs to be computed in numerically stable form as in Python. In addition in Triton
 they recommend not using `exp` but instead using `exp2`. You need the identity
 
 .. math::
     \exp(x) = 2^{\log_2(e) x}
 
-Advanced: there one way to do this with 3 loops. You can also do it with 2 loops if you are clever. 
+Advanced: there one way to do this with 3 loops. You can also do it with 2 loops if you are clever.
 Hint: you will find this identity useful:
 
 .. math::
@@ -481,7 +487,7 @@ Uses one program id axis. Block size `B0` represent the batches to process out o
 Image `x` is size is `H` by `W` with only 1 channel, and kernel `k` is size `KH` by `KW`.
 
 .. math::
-    z_{i, j, l} = \sum_{oj, ol}^{j+oj\le H, l+ol\le W} k_{oj,ol} \times x_{i,j + oj, l + ol} 
+    z_{i, j, l} = \sum_{oj, ol}^{j+oj\le H, l+ol\le W} k_{oj,ol} \times x_{i,j + oj, l + ol}
     \text{ for } i = 1\ldots N_0 \text{ for } j = 1\ldots H \text{ for } l = 1\ldots W
 """
 
@@ -511,7 +517,7 @@ r"""
 A blocked matrix multiplication.
 
 Uses three program id axes. Block size `B2` represent the batches to process out of `N2`.
-Block size `B0` represent the rows of `x` to process out of `N0`. Block size `B1` represent the cols 
+Block size `B0` represent the rows of `x` to process out of `N0`. Block size `B1` represent the cols
 of `y` to process out of `N1`. The middle shape is `MID`.
 
 .. math::
@@ -561,7 +567,7 @@ For this problem our `weight` will be stored in 4 bits. We can store `FPINT` of 
 Mathematically it looks like.
 
 .. math::
-    z_{j, k} = \sum_{l} sc_{j, \frac{l}{g}} (w_{j, l} - sh_{j, \frac{l}{g}}) \times y_{l, k} 
+    z_{j, k} = \sum_{l} sc_{j, \frac{l}{g}} (w_{j, l} - sh_{j, \frac{l}{g}}) \times y_{l, k}
     \text{ for } j = 1\ldots N_0, k = 1\ldots N_1
 
 Where `g` is the number of groups (`GROUP`).
