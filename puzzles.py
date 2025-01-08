@@ -334,6 +334,15 @@ def mul_relu_block_kernel(
     block_id_x = tl.program_id(0)
     block_id_y = tl.program_id(1)
     # Finish me!
+    x_offset = x_pid * B0 + tl.arange(0, B0)
+    y_offset = y_pid * B1 + tl.arange(0, B1)
+    z_offset = y_offset[:, None] * N0 + x_offset[None, :]
+    x_mask = x_offset < N0
+    y_mask = y_offset < N1
+    x_val = tl.load(x_ptr + x_offset, x_mask)
+    y_val = tl.load(y_ptr + y_offset, y_mask)
+    z_val= tl.maximum(y_val[:,None]* x_val[None,:], 0)
+    tl.store(z_ptr+z_offset, z_val, y_mask[:, None]&x_mask[None])
     return
 
 
@@ -398,7 +407,20 @@ def sum_spec(x: Float32[4, 200]) -> Float32[4,]:
 
 @triton.jit
 def sum_kernel(x_ptr, z_ptr, N0, N1, T, B0: tl.constexpr, B1: tl.constexpr):
-    # Finish me!
+    # Split into several child blocks
+    x_pid = tl.program_id(0)
+    x_offset  = x_pid * B0 + tl.arange(0, B0)
+    x_mask = x_offset < N0
+    z = tl.zeros([B0], dtype=tl.float32)
+
+    for y_pid in range(0, T, B1):
+        y_offset = y_pid + tl.arange(0, B1)
+        y_mask = y_offset < T
+        z_mask = x_mask[:, None] & y_mask[None,:]
+        tmp = tl.load(x_ptr + (x_offset[:, None] * T + y_offset[None, :]), mask=z_mask)
+        z+=tl.sum(tmp,axis=1)
+    # Write back result
+    tl.store(z_ptr+x_offset, z, x_mask)
     return
 
 
