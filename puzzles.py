@@ -265,7 +265,14 @@ def add_vec_spec(x: Float32[32,], y: Float32[32,]) -> Float32[32, 32]:
 
 @triton.jit
 def add_vec_kernel(x_ptr, y_ptr, z_ptr, N0, N1, B0: tl.constexpr, B1: tl.constexpr):
-    # Finish me!
+    x_pid = tl.program_id(0)
+    y_pid = tl.program_id(1)
+    x_offset = x_pid * B0 + tl.arange(0, B0)
+    y_offset = y_pid * B1 + tl.arange(0, B1)
+    z_offset = y_offset[:, None] * N0 + x_offset[None, :]
+    x_val = tl.load(x_ptr + x_offset)
+    y_val = tl.load(y_ptr + y_offset)
+    tl.store(z_ptr+z_offset, y_val[:,None]+x_val[None,:])
     return
 
 
@@ -290,9 +297,16 @@ def add_vec_block_spec(x: Float32[100,], y: Float32[90,]) -> Float32[90, 100]:
 def add_vec_block_kernel(
     x_ptr, y_ptr, z_ptr, N0, N1, B0: tl.constexpr, B1: tl.constexpr
 ):
-    block_id_x = tl.program_id(0)
-    block_id_y = tl.program_id(1)
-    # Finish me!
+    x_pid = tl.program_id(0)
+    y_pid = tl.program_id(1)
+    x_offset = x_pid * B0 + tl.arange(0, B0)
+    y_offset = y_pid * B1 + tl.arange(0, B1)
+    z_offset = y_offset[:, None] * N0 + x_offset[None, :]
+    x_mask = x_offset < N0
+    y_mask = y_offset < N1
+    x_val = tl.load(x_ptr + x_offset, x_mask)
+    y_val = tl.load(y_ptr + y_offset, y_mask)
+    tl.store(z_ptr+z_offset, y_val[:,None]+x_val[None,:], y_mask[:, None]&x_mask[None])
     return
 
 
