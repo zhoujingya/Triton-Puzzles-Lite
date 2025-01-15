@@ -382,7 +382,28 @@ def mul_relu_block_back_kernel(
 ):
     block_id_i = tl.program_id(0)
     block_id_j = tl.program_id(1)
-    # Finish me!
+
+    # Calculate offsets
+    x_offset = block_id_i * B0 + tl.arange(0, B0)
+    y_offset = block_id_j * B1 + tl.arange(0, B1)
+    z_offset = y_offset[:, None] * N0 + x_offset[None, :]
+
+    # Calculate masks
+    x_mask = x_offset < N0
+    y_mask = y_offset < N1
+    mask = y_mask[:, None] & x_mask[None, :]
+
+    # Load values
+    x_val = tl.load(x_ptr + z_offset, mask)
+    y_val = tl.load(y_ptr + y_offset, y_mask)
+    dz_val = tl.load(dz_ptr + z_offset, mask)
+
+    # Calculate gradient
+    # dx = dy/dx * dz where dy/dx = y if x*y > 0 else 0
+    dx = tl.where(x_val * y_val[:, None] > 0, y_val[:, None] * dz_val, 0.0)
+
+    # Store result
+    tl.store(dx_ptr + z_offset, dx, mask)
     return
 
 
